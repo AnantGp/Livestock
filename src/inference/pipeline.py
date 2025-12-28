@@ -29,10 +29,13 @@ class CattlePipeline:
     4. LLM: Generate interpretation
     """
     
-    def __init__(self, config_path: str = "configs/pipeline_config.yaml"):
+    def __init__(self, config_path: str = "configs/pipeline_config.yaml", use_llm: bool = True):
         # Load config
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
+        
+        # Override LLM setting if specified
+        self.use_llm = use_llm
         
         # Set device
         if torch.backends.mps.is_available():
@@ -43,6 +46,7 @@ class CattlePipeline:
             self.device = "cpu"
         
         print(f"Pipeline device: {self.device}")
+        print(f"LLM interpretation: {'enabled' if use_llm else 'disabled'}")
         
         # Initialize components (lazy loading)
         self.yolo_model = None
@@ -96,6 +100,12 @@ class CattlePipeline:
     def load_llm(self):
         """Load LLM interpreter"""
         if self.llm_interpreter is not None:
+            return
+        
+        # Check if LLM is disabled
+        if not self.use_llm:
+            from src.inference.llm_interpreter import SimpleInterpreter
+            self.llm_interpreter = SimpleInterpreter()
             return
         
         llm_config = self.config.get("pipeline", {}).get("llm", {})

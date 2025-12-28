@@ -154,14 +154,69 @@ def test_components():
     print("=" * 60)
 
 
+def run_single_image(image_path: str, use_llm: bool = True):
+    """Run pipeline on a single specified image"""
+    
+    print("=" * 60)
+    print("CATTLE ANALYSIS PIPELINE")
+    print("=" * 60)
+    print(f"\nImage: {image_path}")
+    
+    # Import pipeline
+    from src.inference.pipeline import CattlePipeline
+    
+    # Create pipeline
+    pipeline = CattlePipeline("configs/pipeline_config.yaml", use_llm=use_llm)
+    
+    # Process
+    results = pipeline.process(
+        image_path,
+        visualize=True,
+        save_output=True,
+        output_dir="outputs/demo",
+    )
+    
+    # Print results
+    print("\n" + "-" * 60)
+    print("RESULTS")
+    print("-" * 60)
+    
+    if results.get("detection"):
+        print(f"Detection: {results['detection']['num_detections']} cattle found")
+        if results['detection'].get('boxes'):
+            for i, (box, conf) in enumerate(zip(results['detection']['boxes'], results['detection']['confidences'])):
+                print(f"  - Box {i+1}: {box} (conf: {conf:.2f})")
+    
+    if results.get("segmentation"):
+        print(f"Segmentation: {results['segmentation']['coverage_percent']:.1f}% coverage")
+    
+    if results.get("metadata"):
+        meta = results["metadata"]
+        print(f"Metadata: SKU={meta.get('sku', 'N/A')} | Breed={meta.get('breed', 'N/A')} | Weight={meta.get('weight_in_kg', 'N/A')}kg")
+    
+    if results.get("interpretation"):
+        interp = results["interpretation"]
+        if "full_report" in interp:
+            print("\n" + interp["full_report"])
+    
+    if results.get("visualization_path"):
+        print(f"\nVisualization saved to: {results['visualization_path']}")
+    
+    print("\n" + "=" * 60)
+
+
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Cattle Analysis Pipeline Demo")
     parser.add_argument("--test", action="store_true", help="Run component tests")
+    parser.add_argument("--image", type=str, help="Path to image to analyze")
+    parser.add_argument("--no-llm", action="store_true", help="Disable LLM interpretation (faster)")
     args = parser.parse_args()
     
     if args.test:
         test_components()
+    elif args.image:
+        run_single_image(args.image, use_llm=not args.no_llm)
     else:
         run_demo()
