@@ -1,0 +1,44 @@
+# YOLO Configuration
+model:
+  name: yolov8m  # yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+  pretrained: true
+  num_classes: 1  # cattle only
+
+data:
+  train: data/splits/train.txt
+  val: data/splits/val.txt
+  test: data/splits/test.txt
+  images_root: images
+  labels_root: data/annotations/yolo
+  
+  # Class names
+  names:
+    0: cattle
+
+training:
+  epochs: 100
+  batch_size: 16
+  img_size: 640
+  patience: 20  # early stopping
+  
+  optimizer:
+    name: AdamW
+    lr: 0.001
+    weight_decay: 0.0005
+  
+  augmentation:
+    hsv_h: 0.015
+    hsv_s: 0.7
+    hsv_v: 0.4
+    degrees: 15
+    translate: 0.1
+    scale: 0.5
+    flipud: 0.0
+    fliplr: 0.5
+    mosaic: 1.0
+    mixup: 0.1
+
+output:
+  save_dir: models/yolo
+  project: cattle_detection
+  name: exp

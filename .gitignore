@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Outputs / runs
+outputs/
+models/yolo/
+runs/
+
+# Data (large / generated)
+images/
+yt_images/
+eda_out_images/
+eda_out_tabular/
+data/labeling/
+data/labels/
+data/masks/
+data/yolo_dataset/
+data/pseudo_masks/
+data/splits/
+
+# Local dataset (may contain sensitive info)
+dataset.csv
+
+# Training artifacts / weights
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# Logs
+*.log

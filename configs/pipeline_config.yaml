@@ -1,0 +1,29 @@
+# Pipeline Configuration
+pipeline:
+  # Model paths
+  yolo_model: models/yolo/best.pt
+  unet_model: models/unet/best.pth
+  
+  # CSV metadata
+  metadata_csv: dataset.csv
+  
+  # Inference settings
+  yolo_conf: 0.25
+  yolo_iou: 0.45
+  unet_threshold: 0.5
+  
+  # Image settings
+  img_size: 640
+  unet_img_size: 256
+  
+  # LLM settings
+  llm:
+    enabled: true
+    model: Salesforce/blip-image-captioning-large
+    device: auto  # auto, cpu, cuda, mps
+
+output:
+  save_visualizations: true
+  save_masks: true
+  save_reports: true
+  output_dir: outputs
