@@ -300,6 +300,7 @@ class SimpleInterpreter:
     
     def analyze_cattle(
         self,
+        image=None,  # Ignored, for API compatibility with LLMInterpreter
         detection_results: Dict = None,
         segmentation_results: Dict = None,
         metadata: Dict = None,
