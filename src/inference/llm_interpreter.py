@@ -362,8 +362,10 @@ class Qwen2VLInterpreter:
         self,
         model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
         device: str = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ):
         self.model_name = model_name
+        self.llm_config = llm_config or {}
         
         if device is None:
             if torch.cuda.is_available():
@@ -378,17 +380,57 @@ class Qwen2VLInterpreter:
     
     def load(self):
         """Load Qwen2.5-VL model"""
-        from transformers import AutoProcessor, AutoModelForVision2Seq
+        from transformers import AutoProcessor
         
         print(f"Loading {self.model_name}...")
         print("This may take a few minutes on first run...")
         
         self.processor = AutoProcessor.from_pretrained(self.model_name)
-        self.model = AutoModelForVision2Seq.from_pretrained(
+
+        # Qwen2.5-VL-7B is too large for many ~15GB GPUs in fp16 once other models
+        # (YOLO/U-Net) are resident. Default to 4-bit on CUDA unless explicitly disabled.
+        use_cuda = self.device == "cuda"
+        cfg = self.llm_config or {}
+        load_in_4bit = bool(cfg.get("load_in_4bit", True if use_cuda else False))
+        load_in_8bit = bool(cfg.get("load_in_8bit", False))
+
+        quantization_config = None
+        if use_cuda and (load_in_4bit or load_in_8bit):
+            try:
+                from transformers import BitsAndBytesConfig
+
+                compute_dtype_name = str(cfg.get("bnb_4bit_compute_dtype", "float16")).lower()
+                if compute_dtype_name in {"bf16", "bfloat16"}:
+                    compute_dtype = torch.bfloat16
+                else:
+                    compute_dtype = torch.float16
+
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=load_in_4bit,
+                    load_in_8bit=load_in_8bit,
+                    bnb_4bit_quant_type=str(cfg.get("bnb_4bit_quant_type", "nf4")),
+                    bnb_4bit_use_double_quant=bool(cfg.get("bnb_4bit_use_double_quant", True)),
+                    bnb_4bit_compute_dtype=compute_dtype,
+                )
+            except Exception as e:
+                print(f"Warning: bitsandbytes quantization requested but unavailable ({e}). Falling back to fp16.")
+                quantization_config = None
+
+        # Prefer the newer class name when available (AutoModelForVision2Seq is deprecated).
+        model_cls = None
+        try:
+            from transformers import AutoModelForImageTextToText as _Model
+            model_cls = _Model
+        except Exception:
+            from transformers import AutoModelForVision2Seq as _Model
+            model_cls = _Model
+
+        self.model = model_cls.from_pretrained(
             self.model_name,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-            device_map="auto" if self.device == "cuda" else None,
+            torch_dtype=torch.float16 if use_cuda else torch.float32,
+            device_map="auto" if use_cuda else None,
             trust_remote_code=True,
+            quantization_config=quantization_config,
         )
         
         if self.device != "cuda":
@@ -479,9 +521,10 @@ Be specific and practical in your analysis."""
         with torch.no_grad():
             generated_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=512,
-                do_sample=True,
-                temperature=0.7,
+                max_new_tokens=int(self.llm_config.get("max_new_tokens", 256)),
+                do_sample=bool(self.llm_config.get("do_sample", True)),
+                temperature=float(self.llm_config.get("temperature", 0.7)),
+                use_cache=bool(self.llm_config.get("use_cache", True)),
             )
         
         # Decode response

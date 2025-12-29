@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
+import gc
 from PIL import Image
 import yaml
 
@@ -119,6 +120,7 @@ class CattlePipeline:
                 self.llm_interpreter = Qwen2VLInterpreter(
                     model_name=model_name,
                     device=self.device if self.device != "mps" else "cpu",
+                    llm_config=llm_config,
                 )
             else:
                 from src.inference.llm_interpreter import LLMInterpreter
@@ -454,6 +456,9 @@ class CattlePipeline:
         Returns:
             Interpretation report
         """
+        # Qwen2.5-VL is memory hungry; optionally free GPU memory held by
+        # earlier vision models (YOLO/U-Net) before loading/running the LLM.
+        self._prepare_gpu_for_llm()
         self.load_llm()
         
         if hasattr(self.llm_interpreter, 'analyze_cattle'):
@@ -465,6 +470,50 @@ class CattlePipeline:
             )
         else:
             return {"error": "Interpreter not available"}
+
+    def _prepare_gpu_for_llm(self) -> None:
+        """Optionally release GPU memory before LLM inference.
+
+        This is primarily to prevent CUDA OOM when using large VLMs on ~15GB GPUs.
+        """
+        if self.device != "cuda" or not torch.cuda.is_available():
+            return
+
+        llm_cfg = self.config.get("pipeline", {}).get("llm", {})
+        if not llm_cfg.get("enabled", True):
+            return
+
+        model_name = str(llm_cfg.get("model", ""))
+        if "qwen" not in model_name.lower():
+            return
+
+        # Default to releasing vision models for Qwen unless explicitly disabled.
+        release = bool(llm_cfg.get("release_vision_models_before_llm", True))
+        if not release:
+            # Still clear caches.
+            torch.cuda.empty_cache()
+            return
+
+        try:
+            # U-Net is definitely a torch module we own.
+            if self.unet_model is not None:
+                self.unet_model = self.unet_model.to("cpu")
+        except Exception as e:
+            print(f"Warning: could not move U-Net to CPU before LLM ({e})")
+
+        try:
+            # Ultralytics YOLO wrapper usually supports .to(), but guard just in case.
+            if self.yolo_model is not None:
+                if hasattr(self.yolo_model, "to"):
+                    self.yolo_model.to("cpu")
+                elif hasattr(self.yolo_model, "model") and hasattr(self.yolo_model.model, "to"):
+                    self.yolo_model.model.to("cpu")
+        except Exception as e:
+            print(f"Warning: could not move YOLO to CPU before LLM ({e})")
+
+        # Help Python release references promptly.
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def _select_best_box(self, detection: Dict[str, Any], image_shape: Tuple[int, int, int]) -> Optional[List[float]]:
         """Select the best detection box.
