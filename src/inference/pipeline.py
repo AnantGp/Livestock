@@ -160,14 +160,33 @@ class CattlePipeline:
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (opening_k, opening_k))
             binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=opening_iters)
 
+        # Optionally erode before connected-components to break thin connections
+        # (e.g., legs touching grass) and then dilate back.
+        erode_k = int(cfg.get("erode_kernel", 0))
+        erode_iters = int(cfg.get("erode_iterations", 0))
+        restore_dilate = bool(cfg.get("restore_dilate", True))
+
+        eroded = binary
+        if erode_k > 1 and erode_iters > 0:
+            erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_k, erode_k))
+            eroded = cv2.erode(binary, erode_kernel, iterations=erode_iters)
+
         # Keep the largest connected component (foreground).
         if cfg.get("keep_largest_component", True):
-            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(eroded, connectivity=8)
             if num_labels > 1:
                 # Skip label 0 (background)
                 areas = stats[1:, cv2.CC_STAT_AREA]
                 largest_label = 1 + int(np.argmax(areas))
-                binary = (labels == largest_label).astype(np.uint8)
+                eroded = (labels == largest_label).astype(np.uint8)
+            else:
+                eroded = np.zeros_like(eroded)
+
+        if erode_k > 1 and erode_iters > 0 and restore_dilate:
+            erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_k, erode_k))
+            binary = cv2.dilate(eroded, erode_kernel, iterations=erode_iters)
+        else:
+            binary = eroded
 
         return binary
     
@@ -255,8 +274,17 @@ class CattlePipeline:
         # Inference
         with torch.no_grad():
             output = self.unet_model(tensor)
-            pred = torch.softmax(output, dim=1)
-            mask = pred.argmax(dim=1).squeeze().cpu().numpy()
+
+            # Convert logits to a binary foreground mask using a configurable threshold.
+            # This is usually more stable than argmax when the crop contains lots of background.
+            thr = float(self.config.get("pipeline", {}).get("unet_threshold", 0.5))
+            if output.shape[1] == 1:
+                prob_fg = torch.sigmoid(output).squeeze(0).squeeze(0)
+            else:
+                prob = torch.softmax(output, dim=1)
+                prob_fg = prob[:, 1, :, :].squeeze(0)
+
+            mask = (prob_fg >= thr).to(torch.uint8).cpu().numpy()
         
         # Resize mask back to crop size
         mask_crop = cv2.resize(

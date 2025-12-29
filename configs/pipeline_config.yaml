@@ -21,6 +21,9 @@ pipeline:
     enabled: false
     opening_kernel: 3
     opening_iterations: 0
+    erode_kernel: 9
+    erode_iterations: 1
+    restore_dilate: true
     keep_largest_component: true
   
   # LLM settings
