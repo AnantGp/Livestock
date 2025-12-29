@@ -55,6 +55,12 @@ def run_demo():
     print("\n" + "-" * 60)
     print("RESULTS")
     print("-" * 60)
+
+    if results.get("error"):
+        print(f"Error: {results['error']}")
+        print("\nTip: verify the file exists and is readable:")
+        print(f"  ls -la '{sample_image}'")
+        return
     
     if results.get("detection"):
         print(f"Detection: {results['detection']['num_detections']} cattle found")
@@ -183,6 +189,12 @@ def run_single_image(image_path: str, use_llm: bool = True):
     print("\n" + "-" * 60)
     print("RESULTS")
     print("-" * 60)
+
+    if results.get("error"):
+        print(f"Error: {results['error']}")
+        print("\nTip: verify the file exists and is readable:")
+        print(f"  ls -la '{image_path}'")
+        return
     
     if results.get("detection"):
         print(f"Detection: {results['detection']['num_detections']} cattle found")
