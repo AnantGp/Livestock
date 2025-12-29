@@ -1,7 +1,7 @@
 # Pipeline Configuration
 pipeline:
   # Model paths
-  yolo_model: models/yolo/best.pt
+  yolo_model: models/yolo/exp/weights/best.pt
   unet_model: models/unet/best.pth
   
   # CSV metadata
