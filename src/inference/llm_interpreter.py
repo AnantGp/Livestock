@@ -503,7 +503,7 @@ Please evaluate:
 5. Any visible concerns or abnormalities
 6. Overall health assessment
 
-Be specific, practical, and avoid overconfident breed-based assumptions.
+Be specific, practical, and avoid overconfident breed-based assumptions."""
 
         # Prepare inputs for Qwen2.5-VL
         messages = [
