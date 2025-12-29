@@ -18,11 +18,11 @@ pipeline:
 
   # Segmentation mask cleanup (reduces green spill on background)
   mask_postprocess:
-    enabled: false
-    opening_kernel: 3
-    opening_iterations: 0
-    erode_kernel: 9
-    erode_iterations: 1
+    enabled: true
+    opening_kernel: 5
+    opening_iterations: 1
+    erode_kernel: 11
+    erode_iterations: 2
     restore_dilate: true
     keep_largest_component: true
   
