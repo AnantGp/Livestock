@@ -10,7 +10,7 @@ pipeline:
   # Inference settings
   yolo_conf: 0.25
   yolo_iou: 0.45
-  unet_threshold: 0.5
+  unet_threshold: 0.65
   
   # Image settings
   img_size: 640
@@ -19,10 +19,10 @@ pipeline:
   # Segmentation mask cleanup (reduces green spill on background)
   mask_postprocess:
     enabled: true
-    opening_kernel: 5
-    opening_iterations: 1
-    erode_kernel: 11
-    erode_iterations: 2
+    opening_kernel: 7
+    opening_iterations: 2
+    erode_kernel: 15
+    erode_iterations: 3
     restore_dilate: true
     keep_largest_component: true
   
