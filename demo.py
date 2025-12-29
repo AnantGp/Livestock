@@ -60,7 +60,10 @@ def run_demo():
         print(f"Detection: {results['detection']['num_detections']} cattle found")
     
     if results.get("segmentation"):
-        print(f"Segmentation: {results['segmentation']['coverage_percent']:.1f}% coverage")
+        seg = results["segmentation"]
+        print(f"Segmentation: {seg['coverage_percent']:.1f}% coverage (in box)")
+        if seg.get("coverage_full_percent") is not None:
+            print(f"            {seg['coverage_full_percent']:.1f}% coverage (full frame)")
     
     if results.get("metadata"):
         meta = results["metadata"]
@@ -188,7 +191,10 @@ def run_single_image(image_path: str, use_llm: bool = True):
                 print(f"  - Box {i+1}: {box} (conf: {conf:.2f})")
     
     if results.get("segmentation"):
-        print(f"Segmentation: {results['segmentation']['coverage_percent']:.1f}% coverage")
+        seg = results["segmentation"]
+        print(f"Segmentation: {seg['coverage_percent']:.1f}% coverage (in box)")
+        if seg.get("coverage_full_percent") is not None:
+            print(f"            {seg['coverage_full_percent']:.1f}% coverage (full frame)")
     
     if results.get("metadata"):
         meta = results["metadata"]
