@@ -15,6 +15,13 @@ pipeline:
   # Image settings
   img_size: 640
   unet_img_size: 256
+
+  # Segmentation mask cleanup (reduces green spill on background)
+  mask_postprocess:
+    enabled: true
+    opening_kernel: 5
+    opening_iterations: 1
+    keep_largest_component: true
   
   # LLM settings
   llm:

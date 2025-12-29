@@ -143,6 +143,33 @@ class CattlePipeline:
         self.load_llm()
         self.load_metadata()
         print("Pipeline ready!")
+
+    def _postprocess_mask(self, mask: np.ndarray) -> np.ndarray:
+        """Optional post-processing to reduce background spill in binary masks."""
+        cfg = self.config.get("pipeline", {}).get("mask_postprocess", {})
+        if not cfg.get("enabled", True):
+            return mask
+
+        # Expect binary-ish mask (0/1 or 0/255). Normalize to 0/1.
+        binary = (mask > 0).astype(np.uint8)
+
+        # Morphological opening can break thin connections to background.
+        opening_k = int(cfg.get("opening_kernel", 5))
+        opening_iters = int(cfg.get("opening_iterations", 1))
+        if opening_k > 1 and opening_iters > 0:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (opening_k, opening_k))
+            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=opening_iters)
+
+        # Keep the largest connected component (foreground).
+        if cfg.get("keep_largest_component", True):
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+            if num_labels > 1:
+                # Skip label 0 (background)
+                areas = stats[1:, cv2.CC_STAT_AREA]
+                largest_label = 1 + int(np.argmax(areas))
+                binary = (labels == largest_label).astype(np.uint8)
+
+        return binary
     
     def detect(self, image: np.ndarray) -> Dict[str, Any]:
         """
@@ -237,6 +264,9 @@ class CattlePipeline:
             (original_size[1], original_size[0]),
             interpolation=cv2.INTER_NEAREST,
         )
+
+        # Post-process to reduce background spill
+        mask_crop = self._postprocess_mask(mask_crop)
 
         # Coverage inside the crop (kept as coverage_percent for backwards compatibility)
         coverage_in_box = (mask_crop > 0).sum() / mask_crop.size * 100
