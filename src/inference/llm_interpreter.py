@@ -521,13 +521,13 @@ Be specific and practical in your analysis."""
         # Generation can OOM on ~15GB GPUs, especially if earlier vision models
         # are still resident. Retry with a lower-memory config, and if it still
         # fails, degrade gracefully instead of crashing the whole pipeline.
-        max_new_tokens = int(self.llm_config.get("max_new_tokens", 256))
+        max_new_tokens = int(self.llm_config.get("max_new_tokens", 512))
         do_sample = bool(self.llm_config.get("do_sample", True))
         temperature = float(self.llm_config.get("temperature", 0.7))
         use_cache = bool(self.llm_config.get("use_cache", True))
 
         oom_fallback_enabled = bool(self.llm_config.get("oom_fallback", True))
-        oom_fallback_max_new_tokens = int(self.llm_config.get("oom_fallback_max_new_tokens", 128))
+        oom_fallback_max_new_tokens = int(self.llm_config.get("oom_fallback_max_new_tokens", 256))
 
         def _try_generate(gen_kwargs: Dict[str, Any]):
             with torch.no_grad():
