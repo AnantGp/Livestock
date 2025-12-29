@@ -11,6 +11,12 @@ pipeline:
   yolo_conf: 0.25
   yolo_iou: 0.45
   unet_threshold: 0.65
+
+  # Which YOLO detection to segment when multiple boxes exist
+  # (helps avoid a near-full-frame box dominating the crop)
+  best_box:
+    min_area_frac: 0.01
+    max_area_frac: 0.85
   
   # Image settings
   img_size: 640

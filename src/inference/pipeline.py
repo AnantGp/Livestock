@@ -455,6 +455,40 @@ class CattlePipeline:
             )
         else:
             return {"error": "Interpreter not available"}
+
+    def _select_best_box(self, detection: Dict[str, Any], image_shape: Tuple[int, int, int]) -> Optional[List[float]]:
+        """Select the best detection box.
+
+        When multiple boxes exist, we prefer a reasonably-sized box to avoid
+        selecting near-full-frame detections that make segmentation/coverage meaningless.
+        """
+        boxes = detection.get("boxes") or []
+        confs = detection.get("confidences") or []
+        if not boxes or not confs:
+            return None
+
+        h, w = image_shape[:2]
+        cfg = self.config.get("pipeline", {}).get("best_box", {})
+        max_area_frac = float(cfg.get("max_area_frac", 0.90))
+        min_area_frac = float(cfg.get("min_area_frac", 0.01))
+
+        # Candidate indices that are not too small/too large.
+        candidates: List[int] = []
+        for i, b in enumerate(boxes):
+            x1, y1, x2, y2 = map(float, b)
+            bw = max(0.0, min(x2, w) - max(x1, 0.0))
+            bh = max(0.0, min(y2, h) - max(y1, 0.0))
+            area_frac = (bw * bh) / float(max(1, w * h))
+            if min_area_frac <= area_frac <= max_area_frac:
+                candidates.append(i)
+
+        # Pick highest-confidence among candidates, else fallback to global highest confidence.
+        if candidates:
+            best_idx = max(candidates, key=lambda i: confs[i])
+        else:
+            best_idx = int(np.argmax(confs))
+
+        return boxes[best_idx]
     
     def process(
         self,
@@ -508,9 +542,7 @@ class CattlePipeline:
         # 2. Segmentation (on best detection or full image)
         print("  [2/4] Running U-Net segmentation...")
         if results["detection"]["boxes"]:
-            # Use highest confidence detection
-            best_idx = np.argmax(results["detection"]["confidences"])
-            best_box = results["detection"]["boxes"][best_idx]
+            best_box = self._select_best_box(results["detection"], image_bgr.shape)
             results["segmentation"] = self.segment(image_bgr, best_box)
         else:
             results["segmentation"] = self.segment(image_bgr)
