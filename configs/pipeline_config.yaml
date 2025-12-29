@@ -16,6 +16,17 @@ pipeline:
   img_size: 640
   unet_img_size: 256
 
+  # Optional refinement to reduce grass/background spill inside the YOLO crop
+  # Uses GrabCut initialized from U-Net probabilities.
+  grabcut_refine:
+    enabled: true
+    prob_low: 0.30
+    prob_high: 0.70
+    iterations: 3
+    border: 10
+    max_dim: 900
+    fallback_threshold: 0.65
+
   # Segmentation mask cleanup (reduces green spill on background)
   mask_postprocess:
     enabled: true

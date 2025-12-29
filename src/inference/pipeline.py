@@ -189,6 +189,75 @@ class CattlePipeline:
             binary = eroded
 
         return binary
+
+    def _refine_mask_grabcut(self, crop_bgr: np.ndarray, prob_fg: np.ndarray) -> np.ndarray:
+        """Refine a foreground probability map using GrabCut inside the crop.
+
+        This helps separate cow vs grass/background when they are connected.
+        Returns a binary mask (0/1) in crop coordinates.
+        """
+        cfg = self.config.get("pipeline", {}).get("grabcut_refine", {})
+        if not cfg.get("enabled", False):
+            return (prob_fg >= float(cfg.get("fallback_threshold", 0.5))).astype(np.uint8)
+
+        thr_low = float(cfg.get("prob_low", 0.30))
+        thr_high = float(cfg.get("prob_high", 0.70))
+        iters = int(cfg.get("iterations", 3))
+        border = int(cfg.get("border", 10))
+        max_dim = int(cfg.get("max_dim", 900))
+
+        h, w = prob_fg.shape[:2]
+        if h < 2 or w < 2:
+            return (prob_fg >= float(cfg.get("fallback_threshold", 0.5))).astype(np.uint8)
+
+        # Downscale for speed if needed.
+        scale = 1.0
+        if max(h, w) > max_dim:
+            scale = max_dim / float(max(h, w))
+
+        if scale < 1.0:
+            new_w = max(2, int(round(w * scale)))
+            new_h = max(2, int(round(h * scale)))
+            crop_small = cv2.resize(crop_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            prob_small = cv2.resize(prob_fg, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        else:
+            crop_small = crop_bgr
+            prob_small = prob_fg
+
+        # Build GrabCut init mask.
+        gc_mask = np.full(prob_small.shape[:2], cv2.GC_PR_BGD, dtype=np.uint8)
+        gc_mask[prob_small >= thr_low] = cv2.GC_PR_FGD
+        gc_mask[prob_small >= thr_high] = cv2.GC_FGD
+
+        # Force a border as background to reduce spill.
+        if border > 0:
+            b = min(border, (gc_mask.shape[0] - 1) // 2, (gc_mask.shape[1] - 1) // 2)
+            if b > 0:
+                gc_mask[:b, :] = cv2.GC_BGD
+                gc_mask[-b:, :] = cv2.GC_BGD
+                gc_mask[:, :b] = cv2.GC_BGD
+                gc_mask[:, -b:] = cv2.GC_BGD
+
+        bgdModel = np.zeros((1, 65), np.float64)
+        fgdModel = np.zeros((1, 65), np.float64)
+
+        try:
+            cv2.grabCut(crop_small, gc_mask, None, bgdModel, fgdModel, iters, mode=cv2.GC_INIT_WITH_MASK)
+        except Exception:
+            # Fall back to threshold mask if GrabCut fails.
+            out = (prob_small >= float(cfg.get("fallback_threshold", 0.5))).astype(np.uint8)
+        else:
+            out = np.where(
+                (gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD),
+                1,
+                0,
+            ).astype(np.uint8)
+
+        # Upscale back if we downscaled.
+        if scale < 1.0:
+            out = cv2.resize(out, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        return out
     
     def detect(self, image: np.ndarray) -> Dict[str, Any]:
         """
@@ -284,14 +353,25 @@ class CattlePipeline:
                 prob = torch.softmax(output, dim=1)
                 prob_fg = prob[:, 1, :, :].squeeze(0)
 
+            prob_fg_np = prob_fg.float().cpu().numpy()
             mask = (prob_fg >= thr).to(torch.uint8).cpu().numpy()
         
-        # Resize mask back to crop size
+        # Resize probability + mask back to crop size
+        prob_crop = cv2.resize(
+            prob_fg_np.astype(np.float32),
+            (original_size[1], original_size[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
+
         mask_crop = cv2.resize(
             mask.astype(np.uint8),
             (original_size[1], original_size[0]),
             interpolation=cv2.INTER_NEAREST,
         )
+
+        # Refine with GrabCut inside the crop (optional)
+        if self.config.get("pipeline", {}).get("grabcut_refine", {}).get("enabled", False):
+            mask_crop = self._refine_mask_grabcut(crop, prob_crop)
 
         # Post-process to reduce background spill
         mask_crop = self._postprocess_mask(mask_crop)
