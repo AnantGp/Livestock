@@ -190,10 +190,22 @@ class CattlePipeline:
         """
         self.load_unet()
         
+        full_h, full_w = image.shape[:2]
+
         # Crop if box provided
+        x1 = y1 = x2 = y2 = None
         if box is not None:
             x1, y1, x2, y2 = map(int, box)
-            crop = image[y1:y2, x1:x2]
+            # Clamp to image bounds
+            x1 = max(0, min(x1, full_w - 1))
+            x2 = max(0, min(x2, full_w))
+            y1 = max(0, min(y1, full_h - 1))
+            y2 = max(0, min(y2, full_h))
+            if x2 <= x1 or y2 <= y1:
+                crop = image
+                x1 = y1 = x2 = y2 = None
+            else:
+                crop = image[y1:y2, x1:x2]
         else:
             crop = image
         
@@ -219,17 +231,32 @@ class CattlePipeline:
             pred = torch.softmax(output, dim=1)
             mask = pred.argmax(dim=1).squeeze().cpu().numpy()
         
-        # Resize mask back
-        mask_resized = cv2.resize(mask.astype(np.uint8), (original_size[1], original_size[0]), 
-                                   interpolation=cv2.INTER_NEAREST)
-        
-        # Calculate coverage
-        coverage = (mask_resized > 0).sum() / mask_resized.size * 100
-        
+        # Resize mask back to crop size
+        mask_crop = cv2.resize(
+            mask.astype(np.uint8),
+            (original_size[1], original_size[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+        # Coverage inside the crop (kept as coverage_percent for backwards compatibility)
+        coverage_in_box = (mask_crop > 0).sum() / mask_crop.size * 100
+
+        # Re-project crop mask back into full image coordinates
+        if x1 is not None:
+            mask_full = np.zeros((full_h, full_w), dtype=np.uint8)
+            mask_full[y1:y2, x1:x2] = mask_crop
+        else:
+            mask_full = mask_crop
+
+        coverage_full = (mask_full > 0).sum() / mask_full.size * 100
+
         return {
-            "mask": mask_resized,
-            "coverage_percent": coverage,
+            "mask": mask_full,
+            "mask_crop": mask_crop,
+            "coverage_percent": coverage_in_box,
+            "coverage_full_percent": coverage_full,
             "original_size": original_size,
+            "box": [x1, y1, x2, y2] if x1 is not None else None,
         }
     
     def lookup_metadata(self, sku: str) -> Optional[Dict]:
@@ -349,7 +376,9 @@ class CattlePipeline:
             results["segmentation"] = self.segment(image_bgr, best_box)
         else:
             results["segmentation"] = self.segment(image_bgr)
-        print(f"        Coverage: {results['segmentation']['coverage_percent']:.1f}%")
+        print(f"        Coverage (in box): {results['segmentation']['coverage_percent']:.1f}%")
+        if results["segmentation"].get("coverage_full_percent") is not None:
+            print(f"        Coverage (full frame): {results['segmentation']['coverage_full_percent']:.1f}%")
         
         # 3. Metadata lookup
         print("  [3/4] Looking up metadata...")
@@ -397,11 +426,15 @@ class CattlePipeline:
         vis = image.copy()
         
         # Draw segmentation overlay
-        if "mask" in segmentation:
-            mask = segmentation["mask"]
-            # Resize mask to image size if needed
+        mask = segmentation.get("mask")
+        if mask is not None:
+            # `segment()` returns a full-size mask when a YOLO crop is used.
             if mask.shape[:2] != image.shape[:2]:
-                mask = cv2.resize(mask, (image.shape[1], image.shape[0]))
+                mask = cv2.resize(
+                    mask.astype(np.uint8),
+                    (image.shape[1], image.shape[0]),
+                    interpolation=cv2.INTER_NEAREST,
+                )
             
             # Create colored overlay
             overlay = np.zeros_like(vis)
@@ -430,7 +463,7 @@ class CattlePipeline:
     ) -> List[Dict]:
         """Process multiple images"""
         results = []
-        
+
         for path in image_paths:
             result = self.process(
                 path,
@@ -439,9 +472,8 @@ class CattlePipeline:
                 output_dir=output_dir,
             )
             results.append(result)
-        
+
         return results
-    
     def process_sku_folder(
         self,
         sku: str,
