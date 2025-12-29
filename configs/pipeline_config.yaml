@@ -18,9 +18,9 @@ pipeline:
 
   # Segmentation mask cleanup (reduces green spill on background)
   mask_postprocess:
-    enabled: true
-    opening_kernel: 5
-    opening_iterations: 1
+    enabled: false
+    opening_kernel: 3
+    opening_iterations: 0
     keep_largest_component: true
   
   # LLM settings
