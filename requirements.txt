@@ -17,8 +17,9 @@ albumentations>=1.3.0
 segmentation-models-pytorch>=0.3.0
 
 # LLM
-transformers>=4.35.0
+transformers>=4.45.0
 accelerate>=0.24.0
+qwen-vl-utils>=0.0.2
 
 # Utilities
 scikit-learn>=1.3.0

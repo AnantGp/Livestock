@@ -352,6 +352,221 @@ class SimpleInterpreter:
         return report
 
 
+class Qwen2VLInterpreter:
+    """
+    Qwen2.5-VL based interpreter for detailed cattle health analysis.
+    This model can actually reason about cattle health, body condition, breed, etc.
+    """
+    
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        device: str = None,
+    ):
+        self.model_name = model_name
+        
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = "cuda"
+            else:
+                self.device = "cpu"
+        else:
+            self.device = device
+        
+        self.model = None
+        self.processor = None
+    
+    def load(self):
+        """Load Qwen2.5-VL model"""
+        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+        
+        print(f"Loading {self.model_name}...")
+        print("This may take a few minutes on first run...")
+        
+        self.processor = AutoProcessor.from_pretrained(self.model_name)
+        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self.model_name,
+            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+            device_map="auto" if self.device == "cuda" else None,
+        )
+        
+        if self.device != "cuda":
+            self.model = self.model.to(self.device)
+        
+        self.model.eval()
+        print(f"Qwen2.5-VL loaded on {self.device}")
+    
+    def analyze_cattle(
+        self,
+        image: Image.Image,
+        detection_results: Dict = None,
+        segmentation_results: Dict = None,
+        metadata: Dict = None,
+    ) -> Dict[str, Any]:
+        """
+        Comprehensive cattle analysis using Qwen2.5-VL vision-language model.
+        """
+        if self.model is None:
+            self.load()
+        
+        # Build context from detection/segmentation/metadata
+        context_parts = []
+        
+        if detection_results:
+            num_det = len(detection_results.get("boxes", []))
+            confs = detection_results.get("confidences", [])
+            avg_conf = sum(confs) / len(confs) if confs else 0
+            context_parts.append(f"Detection: {num_det} cattle detected (confidence: {avg_conf:.1%})")
+        
+        if segmentation_results:
+            coverage = segmentation_results.get("coverage_percent", 0)
+            context_parts.append(f"Body coverage: {coverage:.1f}% of frame")
+        
+        if metadata:
+            meta_parts = []
+            if metadata.get("breed"):
+                meta_parts.append(f"Breed: {metadata['breed']}")
+            if metadata.get("sex"):
+                meta_parts.append(f"Sex: {metadata['sex']}")
+            if metadata.get("weight_in_kg"):
+                meta_parts.append(f"Weight: {metadata['weight_in_kg']}kg")
+            if metadata.get("age_in_year"):
+                meta_parts.append(f"Age: {metadata['age_in_year']} years")
+            if meta_parts:
+                context_parts.append("Known data: " + ", ".join(meta_parts))
+        
+        context = "\n".join(context_parts) if context_parts else ""
+        
+        # Build the prompt for cattle health analysis
+        prompt = f"""Analyze this cattle image and provide a detailed health assessment.
+
+{context}
+
+Please evaluate:
+1. Body Condition Score (1-5 scale)
+2. Breed identification (if visible)
+3. Estimated weight (if not provided)
+4. Health indicators (coat, posture, eyes, etc.)
+5. Any visible concerns or abnormalities
+6. Overall health assessment
+
+Be specific and practical in your analysis."""
+
+        # Prepare inputs for Qwen2.5-VL
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        
+        # Process with Qwen2.5-VL
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        
+        inputs = self.processor(
+            text=[text],
+            images=[image],
+            padding=True,
+            return_tensors="pt",
+        ).to(self.device)
+        
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=512,
+                do_sample=True,
+                temperature=0.7,
+            )
+        
+        # Decode response
+        generated_ids_trimmed = [
+            out_ids[len(in_ids):] 
+            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        response = self.processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0]
+        
+        # Build report
+        report = {
+            "visual_description": response,
+            "detection_summary": "",
+            "segmentation_summary": "",
+            "metadata_summary": "",
+            "health_assessment": response,
+            "recommendations": [],
+        }
+        
+        if detection_results:
+            num_det = len(detection_results.get("boxes", []))
+            confs = detection_results.get("confidences", [])
+            avg_conf = sum(confs) / len(confs) if confs else 0
+            report["detection_summary"] = f"Detected {num_det} cattle (avg conf: {avg_conf:.1%})"
+        
+        if segmentation_results:
+            coverage = segmentation_results.get("coverage_percent", 0)
+            report["segmentation_summary"] = f"Body coverage: {coverage:.1f}%"
+        
+        if metadata:
+            parts = []
+            for key in ["sku", "breed", "sex", "weight_in_kg", "age_in_year"]:
+                if metadata.get(key):
+                    parts.append(f"{key}: {metadata[key]}")
+            report["metadata_summary"] = " | ".join(parts)
+        
+        # Generate full report
+        report["full_report"] = self._generate_full_report(report)
+        
+        return report
+    
+    def _generate_full_report(self, report: Dict) -> str:
+        """Generate formatted report"""
+        lines = [
+            "=" * 60,
+            "CATTLE HEALTH ANALYSIS REPORT (Qwen2.5-VL)",
+            "=" * 60,
+            "",
+        ]
+        
+        if report["metadata_summary"]:
+            lines.extend([
+                "Known Animal Data:",
+                f"  {report['metadata_summary']}",
+                "",
+            ])
+        
+        if report["detection_summary"]:
+            lines.extend([
+                "Detection:",
+                f"  {report['detection_summary']}",
+                "",
+            ])
+        
+        if report["segmentation_summary"]:
+            lines.extend([
+                "Segmentation:",
+                f"  {report['segmentation_summary']}",
+                "",
+            ])
+        
+        lines.extend([
+            "Health Analysis:",
+            "-" * 40,
+            report["health_assessment"],
+            "",
+            "=" * 60,
+        ])
+        
+        return "\n".join(lines)
+
+
 # Test
 if __name__ == "__main__":
     # Test simple interpreter

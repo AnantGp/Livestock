@@ -111,11 +111,21 @@ class CattlePipeline:
         llm_config = self.config.get("pipeline", {}).get("llm", {})
         
         if llm_config.get("enabled", True):
-            from src.inference.llm_interpreter import LLMInterpreter
-            self.llm_interpreter = LLMInterpreter(
-                model_name=llm_config.get("model", "Salesforce/blip-image-captioning-large"),
-                device=self.device if self.device != "mps" else "cpu",  # BLIP may not work on MPS
-            )
+            model_name = llm_config.get("model", "Salesforce/blip-image-captioning-large")
+            
+            # Choose interpreter based on model name
+            if "qwen" in model_name.lower():
+                from src.inference.llm_interpreter import Qwen2VLInterpreter
+                self.llm_interpreter = Qwen2VLInterpreter(
+                    model_name=model_name,
+                    device=self.device if self.device != "mps" else "cpu",
+                )
+            else:
+                from src.inference.llm_interpreter import LLMInterpreter
+                self.llm_interpreter = LLMInterpreter(
+                    model_name=model_name,
+                    device=self.device if self.device != "mps" else "cpu",
+                )
             self.llm_interpreter.load()
         else:
             from src.inference.llm_interpreter import SimpleInterpreter
