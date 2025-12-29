@@ -378,16 +378,17 @@ class Qwen2VLInterpreter:
     
     def load(self):
         """Load Qwen2.5-VL model"""
-        from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+        from transformers import AutoProcessor, AutoModelForVision2Seq
         
         print(f"Loading {self.model_name}...")
         print("This may take a few minutes on first run...")
         
         self.processor = AutoProcessor.from_pretrained(self.model_name)
-        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+        self.model = AutoModelForVision2Seq.from_pretrained(
             self.model_name,
             torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
             device_map="auto" if self.device == "cuda" else None,
+            trust_remote_code=True,
         )
         
         if self.device != "cuda":
