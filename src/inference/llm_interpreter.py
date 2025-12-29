@@ -439,6 +439,28 @@ class Qwen2VLInterpreter:
         self.model.eval()
         print(f"Qwen2.5-VL loaded on {self.device}")
     
+    def _get_weight_reference(self) -> str:
+        """Get weight reference data learned from the dataset"""
+        try:
+            from src.inference.weight_predictor import get_weight_predictor
+            predictor = get_weight_predictor(self.llm_config.get("metadata_csv", "dataset.csv"))
+            return predictor.get_breed_context_for_llm()
+        except Exception as e:
+            # Fallback hardcoded reference if predictor fails
+            return """WEIGHT REFERENCE DATA (from actual cattle measurements):
+- LOCAL: 200-270 kg typical (range: 150-510 kg, most common breed)
+- SAHIWAL: 250-310 kg typical (range: 205-698 kg)
+- SINDHI: 250-320 kg typical (range: 210-546 kg)
+- RED_CHITTAGONG: 200-260 kg typical (range: 170-286 kg)
+- HOSTINE_CROSS: 330-470 kg typical (range: 202-545 kg)
+- BRAHMA: 600-750 kg typical (large breed)
+
+SIZE CATEGORIES:
+- MINIMUM: 150-293 kg (mean: 208)
+- MEDIUM: 176-511 kg (mean: 257)
+- LARGE: 256-606 kg (mean: 376)
+- EXTRA_LARGE: 315-816 kg (mean: 530)"""
+
     def analyze_cattle(
         self,
         image: Image.Image,
@@ -475,8 +497,13 @@ class Qwen2VLInterpreter:
                 meta_parts.append(f"Weight: {metadata['weight_in_kg']}kg")
             if metadata.get("age_in_year"):
                 meta_parts.append(f"Age: {metadata['age_in_year']} years")
+            if metadata.get("height_in_inch"):
+                meta_parts.append(f"Height: {metadata['height_in_inch']} inches")
             if meta_parts:
                 context_parts.append("Known data: " + ", ".join(meta_parts))
+        
+        # Add learned weight reference from dataset
+        weight_reference = self._get_weight_reference()
         
         context = "\n".join(context_parts) if context_parts else ""
         
@@ -485,25 +512,27 @@ class Qwen2VLInterpreter:
 
 {context}
 
+{weight_reference}
+
 IMPORTANT GUIDELINES:
-- This system is used for cattle of ALL breeds worldwide (Indian zebu breeds like Gir, Sahiwal, Tharparkar, Kankrej, Ongole, Hariana; European breeds like Holstein, Jersey, Angus; and crossbreeds).
-- Indian indigenous cattle are typically SMALLER than Western breeds. Do NOT assume American/European breed weight ranges.
-- Weight estimation from images is inherently uncertain without a scale reference. Provide a reasonable range based on the animal's visible frame size, NOT breed textbook averages.
-- If the cattle appears to be a medium-sized Indian breed, typical weights are 250-400 kg, not 450-700 kg.
+- Use the WEIGHT REFERENCE DATA above (from real cattle measurements) to guide your weight estimates.
+- Indian indigenous cattle (LOCAL, SAHIWAL, SINDHI, RED_CHITTAGONG) are typically 180-350 kg.
+- Only BRAHMA and HOLSTEIN_CROSS breeds commonly exceed 400 kg in this dataset.
+- Weight estimation from images is inherently uncertain. Provide a range, not a single number.
 
 Please evaluate:
 1. Body Condition Score (BCS) on 1-5 scale (1=emaciated, 3=ideal, 5=obese)
    - Base this on visible ribs, spine, hip bones, and muscle/fat cover
 2. Breed type (describe physical features: hump, horns, coat color, ear shape)
-   - Avoid assuming specific breed unless very distinctive
+   - Try to match to one of the known breeds: LOCAL, SAHIWAL, SINDHI, HOSTINE_CROSS, RED_CHITTAGONG, BRAHMA
 3. Estimated weight range
-   - Be conservative; state it's a visual estimate with uncertainty
-   - Consider the animal's frame size relative to typical cattle proportions
+   - Use the WEIGHT REFERENCE DATA to give realistic ranges for the identified breed type
+   - State confidence level (low/medium/high)
 4. Health indicators (coat condition, posture, alertness, eyes, any discharge)
 5. Any visible concerns or abnormalities
 6. Overall health assessment
 
-Be specific, practical, and avoid overconfident breed-based assumptions."""
+Be specific and use the reference data for accurate weight estimation."""
 
         # Prepare inputs for Qwen2.5-VL
         messages = [
