@@ -10,7 +10,7 @@ pipeline:
   # Inference settings
   yolo_conf: 0.25
   yolo_iou: 0.45
-  unet_threshold: 0.75
+  unet_threshold: 0.5  # Lowered from 0.75 to catch more edge cases
 
   # Which YOLO detection to segment when multiple boxes exist
   # (helps avoid a near-full-frame box dominating the crop)
@@ -26,20 +26,20 @@ pipeline:
   # Uses GrabCut initialized from U-Net probabilities.
   grabcut_refine:
     enabled: true
-    prob_low: 0.35
-    prob_high: 0.80
+    prob_low: 0.25  # Lowered from 0.35
+    prob_high: 0.70  # Lowered from 0.80
     iterations: 5
     border: 15
     max_dim: 900
-    fallback_threshold: 0.75
+    fallback_threshold: 0.5  # Lowered from 0.75
 
   # Segmentation mask cleanup (reduces green spill on background)
   mask_postprocess:
     enabled: true
-    opening_kernel: 9
-    opening_iterations: 3
-    erode_kernel: 17
-    erode_iterations: 4
+    opening_kernel: 7   # Reduced from 9
+    opening_iterations: 2  # Reduced from 3
+    erode_kernel: 13  # Reduced from 17
+    erode_iterations: 3  # Reduced from 4
     restore_dilate: true
     keep_largest_component: true
   
