@@ -517,15 +517,88 @@ Be specific and practical in your analysis."""
             padding=True,
             return_tensors="pt",
         ).to(self.device)
-        
-        with torch.no_grad():
-            generated_ids = self.model.generate(
-                **inputs,
-                max_new_tokens=int(self.llm_config.get("max_new_tokens", 256)),
-                do_sample=bool(self.llm_config.get("do_sample", True)),
-                temperature=float(self.llm_config.get("temperature", 0.7)),
-                use_cache=bool(self.llm_config.get("use_cache", True)),
+
+        # Generation can OOM on ~15GB GPUs, especially if earlier vision models
+        # are still resident. Retry with a lower-memory config, and if it still
+        # fails, degrade gracefully instead of crashing the whole pipeline.
+        max_new_tokens = int(self.llm_config.get("max_new_tokens", 256))
+        do_sample = bool(self.llm_config.get("do_sample", True))
+        temperature = float(self.llm_config.get("temperature", 0.7))
+        use_cache = bool(self.llm_config.get("use_cache", True))
+
+        oom_fallback_enabled = bool(self.llm_config.get("oom_fallback", True))
+        oom_fallback_max_new_tokens = int(self.llm_config.get("oom_fallback_max_new_tokens", 128))
+
+        def _try_generate(gen_kwargs: Dict[str, Any]):
+            with torch.no_grad():
+                return self.model.generate(**inputs, **gen_kwargs)
+
+        try:
+            generated_ids = _try_generate(
+                {
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": do_sample,
+                    "temperature": temperature,
+                    "use_cache": use_cache,
+                }
             )
+        except torch.OutOfMemoryError as e:
+            if self.device == "cuda" and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+
+            if not oom_fallback_enabled:
+                raise
+
+            print(
+                "Warning: CUDA OOM during LLM generation. Retrying with a lower-memory configuration "
+                "(fewer tokens, no KV cache, greedy decoding)."
+            )
+
+            try:
+                generated_ids = _try_generate(
+                    {
+                        "max_new_tokens": min(max_new_tokens, oom_fallback_max_new_tokens),
+                        "do_sample": False,
+                        "temperature": 0.0,
+                        "use_cache": False,
+                    }
+                )
+            except torch.OutOfMemoryError:
+                if self.device == "cuda" and torch.cuda.is_available():
+                    try:
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+
+                # Return an actionable error payload instead of throwing.
+                return {
+                    "error": (
+                        "CUDA out of memory while generating the LLM interpretation. "
+                        "Try enabling 4-bit quantization (install bitsandbytes), reducing max_new_tokens, "
+                        "or run with --no-llm."
+                    ),
+                    "visual_description": "",
+                    "detection_summary": "",
+                    "segmentation_summary": "",
+                    "metadata_summary": "",
+                    "health_assessment": "",
+                    "recommendations": [],
+                    "full_report": (
+                        "=" * 60
+                        + "\nCATTLE HEALTH ANALYSIS REPORT (Qwen2.5-VL)\n"
+                        + "=" * 60
+                        + "\n\n"
+                        + "LLM interpretation unavailable due to CUDA OOM.\n"
+                        + "Suggestions:\n"
+                        + "- Install/enable bitsandbytes 4-bit quantization\n"
+                        + "- Lower pipeline.llm.max_new_tokens in configs/pipeline_config.yaml\n"
+                        + "- Run demo.py with --no-llm\n\n"
+                        + "=" * 60
+                    ),
+                }
         
         # Decode response
         generated_ids_trimmed = [
