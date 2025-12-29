@@ -485,15 +485,25 @@ class Qwen2VLInterpreter:
 
 {context}
 
+IMPORTANT GUIDELINES:
+- This system is used for cattle of ALL breeds worldwide (Indian zebu breeds like Gir, Sahiwal, Tharparkar, Kankrej, Ongole, Hariana; European breeds like Holstein, Jersey, Angus; and crossbreeds).
+- Indian indigenous cattle are typically SMALLER than Western breeds. Do NOT assume American/European breed weight ranges.
+- Weight estimation from images is inherently uncertain without a scale reference. Provide a reasonable range based on the animal's visible frame size, NOT breed textbook averages.
+- If the cattle appears to be a medium-sized Indian breed, typical weights are 250-400 kg, not 450-700 kg.
+
 Please evaluate:
-1. Body Condition Score (1-5 scale)
-2. Breed identification (if visible)
-3. Estimated weight (if not provided)
-4. Health indicators (coat, posture, eyes, etc.)
+1. Body Condition Score (BCS) on 1-5 scale (1=emaciated, 3=ideal, 5=obese)
+   - Base this on visible ribs, spine, hip bones, and muscle/fat cover
+2. Breed type (describe physical features: hump, horns, coat color, ear shape)
+   - Avoid assuming specific breed unless very distinctive
+3. Estimated weight range
+   - Be conservative; state it's a visual estimate with uncertainty
+   - Consider the animal's frame size relative to typical cattle proportions
+4. Health indicators (coat condition, posture, alertness, eyes, any discharge)
 5. Any visible concerns or abnormalities
 6. Overall health assessment
 
-Be specific and practical in your analysis."""
+Be specific, practical, and avoid overconfident breed-based assumptions.
 
         # Prepare inputs for Qwen2.5-VL
         messages = [
