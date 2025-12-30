@@ -1,0 +1,11 @@
+# Cattle Detection Dataset
+path: /Users/anant/Desktop/Projects/LIVESTOCK
+train: data/yolo_splits/train.txt
+val: data/yolo_splits/val.txt
+test: data/yolo_splits/test.txt
+
+# Classes
+names:
+  0: cattle
+
+nc: 1

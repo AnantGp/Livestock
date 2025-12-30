@@ -126,16 +126,11 @@ def train(config_path: str):
     # Load or create data splits
     splits_dir = Path("data/splits")
     if not (splits_dir / "train.txt").exists():
-        print("Creating data splits...")
-        create_data_splits(
-            image_dir=config["data"]["images_root"],
-            output_dir=str(splits_dir),
-            train_ratio=0.8,
-            val_ratio=0.1,
-            test_ratio=0.1,
-        )
+        print("No train.txt found. Please run scripts/eda_and_split.py first!")
+        print("Or create splits manually.")
+        return
     
-    # Load splits
+    # Load splits - read image paths from txt files
     with open(splits_dir / "train.txt", "r") as f:
         train_images = [l.strip() for l in f if l.strip()]
     with open(splits_dir / "val.txt", "r") as f:

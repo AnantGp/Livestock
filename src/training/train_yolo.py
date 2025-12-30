@@ -108,28 +108,20 @@ def train(config_path: str):
         model = YOLO(f"{model_name}.yaml")
         print("Training from scratch")
     
-    # Check if dataset.yaml exists
-    dataset_yaml = Path("data/yolo_dataset/dataset.yaml")
+    # Check for data.yaml - prefer the one created by EDA script
+    dataset_yaml = Path("data/yolo_splits/data.yaml")
+    
+    if not dataset_yaml.exists():
+        # Fallback to old location
+        dataset_yaml = Path("data/yolo_dataset/dataset.yaml")
     
     if not dataset_yaml.exists():
         print("\n⚠️  No YOLO dataset found!")
-        print("Creating placeholder dataset structure...")
-        
-        # Create placeholder labels
-        create_yolo_labels_from_images(
-            images_root=config["data"]["images_root"],
-            output_labels_dir=config["data"]["labels_root"],
-        )
-        
-        # Prepare dataset.yaml
-        prepare_yolo_dataset(
-            images_root=config["data"]["images_root"],
-            labels_root=config["data"]["labels_root"],
-            splits_dir="data/splits",
-            output_dir="data/yolo_dataset",
-        )
-        
-        dataset_yaml = Path("data/yolo_dataset/dataset.yaml")
+        print("Please run scripts/eda_and_split.py first to create splits.")
+        print("Or create labels manually in data/annotations/yolo/")
+        return None
+    
+    print(f"\nUsing dataset: {dataset_yaml}")
     
     # Output directory
     output_dir = Path(config["output"]["save_dir"])
