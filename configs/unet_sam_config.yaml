@@ -1,0 +1,51 @@
+# U-Net Configuration - Training with SAM-generated masks
+# Higher quality masks from Segment Anything Model
+model:
+  name: unet
+  encoder: resnet34  # resnet18, resnet34, resnet50, efficientnet-b0
+  pretrained: true
+  num_classes: 2  # background, cattle
+  in_channels: 3
+
+data:
+  # SAM-generated masks
+  train: data/sam_splits/train.txt
+  val: data/sam_splits/val.txt
+  test: data/sam_splits/test.txt
+  images_root: images
+  masks_root: data/sam_masks
+  use_sam_masks: true
+  
+training:
+  epochs: 150
+  batch_size: 8
+  img_size: 256
+  patience: 20
+  
+  optimizer:
+    name: AdamW
+    lr: 0.0001
+    weight_decay: 0.01
+  
+  scheduler:
+    name: CosineAnnealingLR
+    T_max: 150
+    eta_min: 0.000001
+  
+  loss:
+    name: combined  # dice, ce, combined
+    dice_weight: 0.6
+    ce_weight: 0.4
+  
+  augmentation:
+    horizontal_flip: 0.5
+    vertical_flip: 0.0
+    rotate: 15
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+
+output:
+  save_dir: models/unet_sam
+  save_best: true
+  save_last: true

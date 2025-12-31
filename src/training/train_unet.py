@@ -99,6 +99,35 @@ def validate(
     return {"loss": total_loss / n, "iou": total_iou / n}
 
 
+def load_split_file(filepath: str):
+    """
+    Load split file. Supports two formats:
+    1. Tab-separated: image_path\tmask_path
+    2. Single column: image_path (for pseudo-mask generation)
+    
+    Returns: (image_paths, mask_paths or None)
+    """
+    image_paths = []
+    mask_paths = []
+    
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            
+            if "\t" in line:
+                # Tab-separated format (SAM masks)
+                parts = line.split("\t")
+                image_paths.append(parts[0])
+                mask_paths.append(parts[1])
+            else:
+                # Single column (pseudo-mask mode)
+                image_paths.append(line)
+    
+    return image_paths, mask_paths if mask_paths else None
+
+
 def train(config_path: str):
     """Main training function"""
     
@@ -123,28 +152,41 @@ def train(config_path: str):
     output_dir = Path(config["output"]["save_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Load or create data splits
-    splits_dir = Path("data/splits")
+    # Determine split directory
+    use_sam_masks = config["data"].get("use_sam_masks", False)
+    if use_sam_masks:
+        splits_dir = Path("data/sam_splits")
+        print("Mode: SAM-generated masks")
+    else:
+        splits_dir = Path("data/splits")
+        print("Mode: Pseudo-masks (GrabCut)")
+    
     if not (splits_dir / "train.txt").exists():
-        print("No train.txt found. Please run scripts/eda_and_split.py first!")
-        print("Or create splits manually.")
+        print(f"No train.txt found in {splits_dir}.")
+        if use_sam_masks:
+            print("Run: python scripts/generate_sam_masks.py --images images --create-splits")
+        else:
+            print("Run: python scripts/eda_and_split.py")
         return
     
-    # Load splits - read image paths from txt files
-    with open(splits_dir / "train.txt", "r") as f:
-        train_images = [l.strip() for l in f if l.strip()]
-    with open(splits_dir / "val.txt", "r") as f:
-        val_images = [l.strip() for l in f if l.strip()]
+    # Load splits
+    train_images, train_masks = load_split_file(splits_dir / "train.txt")
+    val_images, val_masks = load_split_file(splits_dir / "val.txt")
     
     print(f"Train images: {len(train_images)}")
     print(f"Val images: {len(val_images)}")
     
-    # Check if we have masks
+    # Check mask type
     masks_root = Path(config["data"].get("masks_root", "data/annotations/masks"))
     
-    if masks_root.exists() and any(masks_root.iterdir()):
-        # Use real masks
-        print("Using annotated masks")
+    if train_masks:
+        # Use masks from split file (SAM or annotated)
+        print("Using masks from split file (SAM-generated)")
+        train_dataset = SegmentationDataset(train_images, train_masks, config["training"]["img_size"], augment=True)
+        val_dataset = SegmentationDataset(val_images, val_masks, config["training"]["img_size"], augment=False)
+    elif masks_root.exists() and any(masks_root.iterdir()):
+        # Use real masks from masks_root
+        print("Using annotated masks from masks_root")
         train_masks = [str(masks_root / Path(p).name.replace(".jpg", "_mask.png")) for p in train_images]
         val_masks = [str(masks_root / Path(p).name.replace(".jpg", "_mask.png")) for p in val_images]
         
