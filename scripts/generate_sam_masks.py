@@ -88,28 +88,79 @@ def generate_sam_mask(
         Binary mask (H, W)
     """
     predictor.set_image(image)
+    h, w = image.shape[:2]
     
     if box is not None:
-        masks, scores, _ = predictor.predict(
-            box=box,
-            multimask_output=multimask,
-        )
-        # Select best mask
-        best_idx = scores.argmax()
-        mask = masks[best_idx]
-    else:
-        # Auto-generate mask for largest object (center point prompt)
-        h, w = image.shape[:2]
-        center_point = np.array([[w // 2, h // 2]])
-        center_label = np.array([1])  # Foreground
+        # Expand box by 10% for better context
+        box_w = box[2] - box[0]
+        box_h = box[3] - box[1]
+        expand_x = box_w * 0.1
+        expand_y = box_h * 0.1
+        expanded_box = np.array([
+            max(0, box[0] - expand_x),
+            max(0, box[1] - expand_y),
+            min(w, box[2] + expand_x),
+            min(h, box[3] + expand_y)
+        ])
+        
+        # Use box + center point for better results
+        center_x = (box[0] + box[2]) / 2
+        center_y = (box[1] + box[3]) / 2
+        point_coords = np.array([[center_x, center_y]])
+        point_labels = np.array([1])  # Foreground
         
         masks, scores, _ = predictor.predict(
-            point_coords=center_point,
-            point_labels=center_label,
-            multimask_output=multimask,
+            point_coords=point_coords,
+            point_labels=point_labels,
+            box=expanded_box,
+            multimask_output=True,
         )
-        best_idx = scores.argmax()
+        
+        # Select LARGEST mask (cattle should be the main object)
+        mask_areas = [m.sum() for m in masks]
+        best_idx = np.argmax(mask_areas)
         mask = masks[best_idx]
+    else:
+        # No box - use automatic mask generation with multiple points
+        # Sample 5 points in center region
+        center_points = np.array([
+            [w // 2, h // 2],           # Center
+            [w // 2, h // 3],           # Upper center
+            [w // 2, 2 * h // 3],       # Lower center
+            [w // 3, h // 2],           # Left center
+            [2 * w // 3, h // 2],       # Right center
+        ])
+        
+        best_mask = None
+        best_area = 0
+        
+        for point in center_points:
+            masks, scores, _ = predictor.predict(
+                point_coords=np.array([point]),
+                point_labels=np.array([1]),
+                multimask_output=True,
+            )
+            # Get largest mask from this point
+            for m in masks:
+                area = m.sum()
+                # Prefer masks with 15-60% coverage (typical cattle size)
+                coverage = area / (h * w)
+                if 0.15 <= coverage <= 0.60 and area > best_area:
+                    best_area = area
+                    best_mask = m
+        
+        # Fallback if no good mask found
+        if best_mask is None:
+            masks, scores, _ = predictor.predict(
+                point_coords=np.array([[w // 2, h // 2]]),
+                point_labels=np.array([1]),
+                multimask_output=True,
+            )
+            mask_areas = [m.sum() for m in masks]
+            best_idx = np.argmax(mask_areas)
+            best_mask = masks[best_idx]
+        
+        mask = best_mask
     
     return mask.astype(np.uint8)
 
