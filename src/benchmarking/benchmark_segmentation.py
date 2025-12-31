@@ -76,12 +76,27 @@ class SegmentationBenchmark:
         from src.models.unet import get_unet_model
         
         print("Loading U-Net...")
-        self._unet = get_unet_model()
         
         if Path(model_path).exists():
             # weights_only=False needed for PyTorch 2.6+ (checkpoint contains numpy arrays)
-            state_dict = torch.load(model_path, map_location=self.device, weights_only=False)
-            self._unet.load_state_dict(state_dict)
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
+            
+            # Get config from checkpoint if available
+            config = checkpoint.get("config", {})
+            self._unet = get_unet_model(
+                encoder_name=config.get("model", {}).get("encoder", "resnet34"),
+                num_classes=config.get("model", {}).get("num_classes", 2),
+            )
+            
+            # Load state dict from checkpoint (training saves as dict with "model_state_dict" key)
+            if "model_state_dict" in checkpoint:
+                self._unet.load_state_dict(checkpoint["model_state_dict"])
+            else:
+                # Fallback for old format where state_dict was saved directly
+                self._unet.load_state_dict(checkpoint)
+        else:
+            print(f"Warning: Model not found at {model_path}, using untrained model")
+            self._unet = get_unet_model()
         
         self._unet.to(self.device)
         self._unet.eval()
@@ -108,7 +123,14 @@ class SegmentationBenchmark:
             output = self._unet(input_tensor)
             if isinstance(output, dict):
                 output = output.get('out', output.get('logits', list(output.values())[0]))
-            probs = torch.sigmoid(output).squeeze().cpu().numpy()
+            
+            # Handle both single-class (sigmoid) and multi-class (softmax) outputs
+            if output.shape[1] == 1:
+                # Single channel - use sigmoid
+                probs = torch.sigmoid(output).squeeze().cpu().numpy()
+            else:
+                # Multi-class (e.g., 2 classes: background, foreground) - use softmax
+                probs = torch.softmax(output, dim=1)[:, 1, :, :].squeeze().cpu().numpy()
         
         # Create mask
         mask = (probs > threshold).astype(np.uint8)
