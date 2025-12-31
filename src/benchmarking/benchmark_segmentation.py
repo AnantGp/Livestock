@@ -79,7 +79,8 @@ class SegmentationBenchmark:
         self._unet = get_unet_model()
         
         if Path(model_path).exists():
-            state_dict = torch.load(model_path, map_location=self.device)
+            # weights_only=False needed for PyTorch 2.6+ (checkpoint contains numpy arrays)
+            state_dict = torch.load(model_path, map_location=self.device, weights_only=False)
             self._unet.load_state_dict(state_dict)
         
         self._unet.to(self.device)
